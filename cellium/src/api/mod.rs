@@ -7,6 +7,7 @@ use crate::state_machine::StateMachine;
 use serde::Deserialize;
 use crate::errors::AppError; // We'll define a custom error type in a new module
 use warp::http::StatusCode;
+use warp::Reply;
 
 pub async fn run_server() {
     // Load server configuration from environment variables
@@ -16,8 +17,8 @@ pub async fn run_server() {
         .parse::<u16>()
         .unwrap_or(8080);
 
-    // Build routes
-    let routes = api_routes();
+    // Build routes with error handling
+    let routes = api_routes().recover(handle_rejection);
 
     // Start the server
     warp::serve(routes)
@@ -87,3 +88,41 @@ async fn handle_process_document(doc: Document) -> Result<impl warp::Reply, warp
 
 // Error handling
 impl warp::reject::Reject for AppError {}
+
+// Add the following function for error handling
+pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, std::convert::Infallible> {
+    if let Some(app_error) = err.find::<AppError>() {
+        let code;
+        let message;
+
+        match app_error {
+            AppError::IngestionError(_) => {
+                code = StatusCode::BAD_REQUEST;
+                message = "Error ingesting document.";
+            },
+            AppError::GenerationError(_) => {
+                code = StatusCode::INTERNAL_SERVER_ERROR;
+                message = "Error generating content.";
+            },
+            AppError::ValidationError => {
+                code = StatusCode::BAD_REQUEST;
+                message = "Validation failed for the generated content.";
+            },
+            AppError::UnsupportedFileType => {
+                code = StatusCode::BAD_REQUEST;
+                message = "Unsupported file type.";
+            },
+            AppError::ParsingError(_) => {
+                code = StatusCode::BAD_REQUEST;
+                message = "Error parsing the document.";
+            },
+        }
+
+        let json = warp::reply::json(&serde_json::json!({"error": message}));
+        Ok(warp::reply::with_status(json, code))
+    } else {
+        // Return 500 Internal Server Error for unhandled errors
+        let json = warp::reply::json(&serde_json::json!({"error": "Internal server error"}));
+        Ok(warp::reply::with_status(json, StatusCode::INTERNAL_SERVER_ERROR))
+    }
+}
