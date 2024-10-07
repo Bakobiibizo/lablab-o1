@@ -1,0 +1,876 @@
+services\dataIngestion\extractTSCodeBlock.ts
+import * as ts from 'typescript';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Function to read and extract function blocks from a TypeScript file
+function extractTSHTMLBlock(filePath: string) {
+    // Read the file content
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+
+    // Create a SourceFile object
+    const sourceFile = ts.createSourceFile(
+        path.basename(filePath),
+        fileContent,
+        ts.ScriptTarget.ESNext,
+        true
+    );
+    const codeblocks: string[] = [];
+    // Function to recursively traverse the AST
+    function visit(node: ts.Node) {
+        // Check if the node is a function (function declaration, method, or arrow function)
+        if (
+            ts.isFunctionDeclaration(node) ||
+            ts.isMethodDeclaration(node) ||
+            ts.isArrowFunction(node)
+        ) {
+            // Get the full text of the function from the source file
+            const functionText = node.getFullText(sourceFile);
+            codeblocks.push(functionText);
+            console.log('Function Block:\n', functionText);
+            console.log('-----------------------------------');
+        }
+
+        // Continue traversing the AST
+        ts.forEachChild(node, visit);
+    }
+
+    // Start traversing the AST from the root node
+    visit(sourceFile);
+    return codeblocks
+}
+
+
+export default extractTSHTMLBlock
+
+
+
+src\data-generator\AnthropicDataGenerator.ts
+import { dataGeneratorPromptList } from "../promptManagement/prompts/dataGeneratorPromptList";
+import fs from "fs";
+import TheCount from './theCount';
+import { AnthropicGenerator } from "../generatorManagement/anthropic/anthropicGenerator";
+
+console.info("Initializing Data Generation");
+const anthropic = new AnthropicGenerator();
+
+
+export class AnthropicDataGenerator {
+    count: TheCount
+    dataFileDirectory: string
+    anthropicDir: string
+    dataFilePath: string
+    requestPrompt: string
+    dataSchema: string
+    prompt: string
+
+    constructor(fileDir: string = "src/prompts/testDataGenerator/data") {
+        // initialize the count for incrementing file names
+        this.count = new TheCount(0);
+        // set the data file directory
+        this.dataFileDirectory = fileDir
+        this.anthropicDir = `${this.dataFileDirectory}/anthropic`;
+        this.dataFilePath = `${this.anthropicDir}/anthropicData_${this.count.countFilesInDir(this.anthropicDir)}.txt`;
+
+        // initialize prompts
+        this.requestPrompt = "";
+        this.dataSchema = "";
+        this.prompt = "";
+    }
+
+    // construct the prompt from a request prompt that defines that the ai should generate data based on a schema and a schema to base the genreation on
+    buildPrompt(dataSchema: string, requestPrompt?: string): string {
+
+        if (!dataSchema) { throw `No data schema provided`; }
+        this.dataSchema = dataSchema;
+
+        if (!requestPrompt) { this.requestPrompt = dataGeneratorPromptList.getItem("DATA_GENERATION_REQUEST_PROMPT"); }
+        else {
+            this.requestPrompt = requestPrompt;
+        }
+
+        return `${this.requestPrompt}${this.dataSchema}`
+    }
+
+    // Sets the data schema
+    setDataSchema(dataSchema: string) {
+        if (!dataSchema) { throw `No data schema provided`; }
+        this.dataSchema = dataSchema;
+        return dataSchema
+    }
+
+    // Sets the filepath to save the data
+    setDataFilePath(dataFilePath: string) {
+        if (!dataFilePath) { throw `No data file path provided`; }
+        this.dataFilePath = dataFilePath;
+        return dataFilePath
+    }
+
+    // Check if the directory exists, if not, create it
+    checkDir(anthropicDir: string) {
+        if (!fs.existsSync(this.anthropicDir)) {
+            fs.mkdirSync(anthropicDir, { recursive: true });
+        }
+        return anthropicDir
+    }
+
+    // Generate data
+    async generateTestData(dataSchemaPrompt: string, outputPath?: string) {
+
+        console.info("Generating test data");
+
+        // Validate input
+        if (dataSchemaPrompt) { this.setDataSchema(dataSchemaPrompt) };
+
+        if (outputPath) { this.setDataFilePath(outputPath) };
+
+        // Construct the prompt
+        this.prompt = this.requestPrompt
+
+        // Generate data
+        const response = await anthropic.anthropicRequest(this.requestPrompt).then((data) => { return data; });
+
+        if (!response) { throw new Error('No response received'); }
+        else {
+            // Clean data
+            const generatedData = response.split('```')[1];
+
+            console.debug(generatedData)
+
+            // make sure path exists
+            this.checkDir(this.anthropicDir)
+
+            // Save to file
+            fs.writeFileSync(this.dataFilePath, generatedData, { encoding: 'utf8' });
+        }
+
+    }
+}
+
+
+const generator = new AnthropicDataGenerator();
+generator.generateTestData(dataGeneratorPromptList.getItem("DATA_GENERATION_REQUEST_PROMPT"));
+
+
+src\data-generator\theCount.ts
+import fs from "fs";
+
+export type Count = {
+    count: number
+    countFilesInDir: (directory: string) => number
+}
+
+export default class TheCount {
+    count: number;
+    constructor(count: number) {
+        this.count = count;
+    }
+    public countFilesInDir(directory: string): number {
+        if (!fs.existsSync(directory)) {
+            return 0;
+        }
+        const files = fs.readdirSync(directory);
+
+        for (const file of files) {
+            const filePath = `${directory}/${file}`;
+            const stats = fs.statSync(filePath);
+
+            if (stats.isFile()) {
+                this.count++;
+            }
+        }
+
+        return this.count;
+    }
+}
+
+src\data-Ingestor\DataIngestor.ts
+import * as fs from 'fs';
+import { extractHtml } from './extractHtml';
+import { extractJSX } from './extractJSX';
+import { extractTSHtmlBlock } from './extractTSHTMLBlock';
+import { DirectoryParser } from './DirectoryParser';
+import extractTSHTMLBlock from './extractTSCodeBlock';
+
+export default class DataIngestor {
+    static pathMapContent: any;
+    static mirrorDirectory: string = "data/mirror";
+    static directoryParser: DirectoryParser = new DirectoryParser();
+    static dataMap: any = {};
+    static mirrorMap: string = 'data/mirrorMap.json';
+
+    public static generatePathmap(filepath = 'tests/testPlace/'): void {
+        DataIngestor.directoryParser.writeStructureToFile(filepath);
+    }
+
+    public static readPathMap(filepath: string): void {
+        const fileContent = fs.readFileSync(filepath, "utf8");
+        DataIngestor.pathMapContent = JSON.parse(fileContent);
+    }
+
+    public static ingestTSCodeBlocks(filePath: string): void {
+        DataIngestor.dataMap[filePath] = extractTSHTMLBlock(filePath);
+    }
+
+    public static ingestHtmlFile(filePath: string): void {
+        const fileExtension = filePath.split('.').pop();
+        switch (fileExtension) {
+            case 'html':
+                DataIngestor.dataMap[filePath] = extractHtml(filePath);
+                DataIngestor.directoryParser.createMirrorFile(filePath)
+                break;
+            case 'tsx':
+            case 'jsx':
+                DataIngestor.dataMap[filePath] = extractJSX(filePath);
+                DataIngestor.directoryParser.createMirrorFile(filePath)
+                break;
+            case 'ts':
+            case 'js':
+                DataIngestor.dataMap[filePath] = extractTSHtmlBlock(filePath);
+                DataIngestor.directoryParser.createMirrorFile(filePath)
+                break;
+            default:
+                console.log(`Unsupported file type: ${fileExtension}`);
+        }
+    }
+
+    public static processPathmap(pathmap: any) {
+        fs.writeFileSync(DataIngestor.mirrorMap, JSON.stringify(DataIngestor.dataMap, null, 2))
+        for (const key in pathmap) {
+            const value = pathmap[key];
+            if (typeof value === 'string') {
+                DataIngestor.ingestHtmlFile(value);
+            } else if (typeof value === 'object') {
+                DataIngestor.processPathmap(value);
+            }
+        }
+    }
+}
+
+//// Initialize and process the path map
+//DataIngestor.generatePathmap();
+//DataIngestor.readPathMap(DataIngestor.directoryParser.filemap);
+//DataIngestor.processPathmap(DataIngestor.pathMapContent);
+//
+
+src\data-Ingestor\DirectoryParser.ts
+import * as fs from 'fs';
+import * as path from 'path';
+import DataIngestor from './DataIngestor';
+
+export class DirectoryParser {
+    paths: string[];
+    filemap: string;
+    ignorepaths: string;
+    dataFolder: string;
+    fileIgnore: string[]
+    mirrorFilePath: string
+    mirrorDirectory: string
+    constructor() {
+        this.dataFolder = 'data';
+        this.filemap = 'data/fileMap.json';
+        this.ignorepaths = 'data/ignorepaths.txt';
+        if (!fs.existsSync(this.dataFolder)) {
+            fs.mkdirSync(this.dataFolder);
+        }
+        if (!fs.existsSync(this.filemap)) {
+            fs.writeFileSync(this.filemap, '{}');
+        }
+        this.paths = [];
+        this.fileIgnore = [];
+        this.setIgnorePaths();
+        this.mirrorFilePath = '';
+        this.mirrorDirectory = 'data/mirror';
+    }
+
+    public setIgnorePaths() {
+        if (!fs.existsSync(this.ignorepaths)) {
+            fs.writeFileSync(this.ignorepaths, '');
+            return;
+        }
+        fs.readFileSync(this.ignorepaths, 'utf8').split('\n').forEach(line => {
+            if (line) {
+                this.fileIgnore.push(line.trim());
+            }
+        });
+    }
+
+    public addToIgnorePaths(pathToAdd: string) {
+        this.fileIgnore.push(pathToAdd);
+        fs.writeFileSync(this.ignorepaths, this.fileIgnore.join('\n'));
+    }
+
+    public removeFromIgnorePaths(pathToRemove: string) {
+        this.fileIgnore = this.fileIgnore.filter(ignorePath => ignorePath !== pathToRemove);
+        fs.writeFileSync(this.ignorepaths, this.fileIgnore.join('\n'));
+    }
+
+    private shouldIgnorePath(filePath: string): boolean {
+        const normalizedPath = path.normalize(filePath);
+        return this.fileIgnore.some(ignorePath =>
+            normalizedPath.includes(path.normalize(ignorePath)) || normalizedPath === path.normalize(ignorePath));
+    }
+
+    public walkFolder(folder: string): any {
+        let structure: any = {};
+        for (const file of fs.readdirSync(folder)) {
+            const filePath = path.join(folder, file);
+            if (this.shouldIgnorePath(filePath)) {
+                continue;
+            }
+            if (fs.statSync(filePath).isDirectory()) {
+                structure[file] = this.walkFolder(filePath);
+            } else {
+                structure[file] = filePath;
+            }
+        }
+        return structure;
+    }
+
+    public writeStructureToFile(folder: string) {
+        const structure = this.walkFolder(folder);
+        fs.writeFileSync(this.filemap, JSON.stringify(structure, null, 2));
+    }
+    public createMirrorFile(originalFilePath: string): string {
+        const originalContent = fs.readFileSync(originalFilePath, 'utf8');
+        const fileName = path.basename(originalFilePath);
+        const mirrorFilePath = path.join(this.mirrorDirectory, fileName);
+
+        if (!fs.existsSync(this.mirrorDirectory)) {
+            fs.mkdirSync(this.mirrorDirectory, { recursive: true });
+        }
+
+        fs.writeFileSync(mirrorFilePath, originalContent);
+        this.mirrorFilePath = mirrorFilePath;
+        return this.mirrorFilePath;
+    }
+}
+
+
+
+
+src\data-Ingestor\extractHtml.ts
+import * as cheerio from 'cheerio';
+import * as fs from 'fs';
+
+export function extractHtml(filePath: string) {
+    const htmlContent = fs.readFileSync(filePath, 'utf8');
+    const $ = cheerio.load(htmlContent);
+
+    // Example: Finding all divs and adding a class
+    $('div').addClass('new-class');
+
+    // Log or return the modified HTML
+    return $.html()
+
+}
+
+// Example usage
+//processHtmlFile('path/to/angular/template.html');
+
+
+src\data-Ingestor\extractJSX.ts
+import * as parser from '@babel/parser';
+import traverse from '@babel/traverse';
+import generate from '@babel/generator';
+
+export function extractJSX(code: string) {
+    const jsxElements: string[] = [];
+    const ast = parser.parse(code, {
+        sourceType: 'module',
+        plugins: [
+            'jsx',
+            'typescript'
+        ]
+    });
+
+    traverse(ast, {
+        JSXElement(path) {
+            // Convert the JSX element to string
+            const jsxString = generate(path.node).code;
+            jsxElements.push(jsxString);
+        }
+    });
+    return jsxElements.join('\n')
+}
+
+
+src\data-Ingestor\extractTSCodeBlock.ts
+import * as ts from 'typescript';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Function to read and extract function blocks from a TypeScript file
+function extractTSHTMLBlock(filePath: string) {
+    // Read the file content
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+
+    // Create a SourceFile object
+    const sourceFile = ts.createSourceFile(
+        path.basename(filePath),
+        fileContent,
+        ts.ScriptTarget.ESNext,
+        true
+    );
+    const codeblocks: string[] = [];
+    // Function to recursively traverse the AST
+    function visit(node: ts.Node) {
+        // Check if the node is a function (function declaration, method, or arrow function)
+        if (
+            ts.isFunctionDeclaration(node) ||
+            ts.isMethodDeclaration(node) ||
+            ts.isArrowFunction(node)
+        ) {
+            // Get the full text of the function from the source file
+            const functionText = node.getFullText(sourceFile);
+            codeblocks.push(functionText);
+            console.log('Function Block:\n', functionText);
+            console.log('-----------------------------------');
+        }
+
+        // Continue traversing the AST
+        ts.forEachChild(node, visit);
+    }
+
+    // Start traversing the AST from the root node
+    visit(sourceFile);
+    return codeblocks
+}
+
+
+export default extractTSHTMLBlock
+
+
+
+src\data-Ingestor\extractTSHTMLBlock.ts
+import * as ts from 'typescript'
+import * as fs from 'fs';
+
+
+export function extractTSHtmlBlock(filePath: string) {
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    return ts.createSourceFile(filePath, fileContent, ts.ScriptTarget.Latest).text;
+}
+
+
+src\dataGeneration\AnthropicDataGenerator.ts
+import { dataGeneratorPromptList } from "../promptManagement/prompts/dataGeneratorPromptList";
+import fs from "fs";
+import TheCount from './theCount';
+import { AnthropicGenerator } from "../generatorManagement/anthropic/anthropicGenerator";
+
+console.info("Initializing Data Generation");
+const anthropic = new AnthropicGenerator();
+
+
+export class AnthropicDataGenerator {
+    count: TheCount
+    dataFileDirectory: string
+    anthropicDir: string
+    dataFilePath: string
+    requestPrompt: string
+    dataSchema: string
+    prompt: string
+
+    constructor(fileDir: string = "src/prompts/testDataGenerator/data") {
+        // initialize the count for incrementing file names
+        this.count = new TheCount(0);
+        // set the data file directory
+        this.dataFileDirectory = fileDir
+        this.anthropicDir = `${this.dataFileDirectory}/anthropic`;
+        this.dataFilePath = `${this.anthropicDir}/anthropicData_${this.count.countFilesInDir(this.anthropicDir)}.txt`;
+
+        // initialize prompts
+        this.requestPrompt = "";
+        this.dataSchema = "";
+        this.prompt = "";
+    }
+
+    // construct the prompt from a request prompt that defines that the ai should generate data based on a schema and a schema to base the genreation on
+    buildPrompt(dataSchema: string, requestPrompt?: string): string {
+
+        if (!dataSchema) { throw `No data schema provided`; }
+        this.dataSchema = dataSchema;
+
+        if (!requestPrompt) { this.requestPrompt = dataGeneratorPromptList.getItem("DATA_GENERATION_REQUEST_PROMPT"); }
+        else {
+            this.requestPrompt = requestPrompt;
+        }
+
+        return `${this.requestPrompt}${this.dataSchema}`
+    }
+
+    // Sets the data schema
+    setDataSchema(dataSchema: string) {
+        if (!dataSchema) { throw `No data schema provided`; }
+        this.dataSchema = dataSchema;
+        return dataSchema
+    }
+
+    // Sets the filepath to save the data
+    setDataFilePath(dataFilePath: string) {
+        if (!dataFilePath) { throw `No data file path provided`; }
+        this.dataFilePath = dataFilePath;
+        return dataFilePath
+    }
+
+    // Check if the directory exists, if not, create it
+    checkDir(anthropicDir: string) {
+        if (!fs.existsSync(this.anthropicDir)) {
+            fs.mkdirSync(anthropicDir, { recursive: true });
+        }
+        return anthropicDir
+    }
+
+    // Generate data
+    async generateTestData(dataSchemaPrompt: string, outputPath?: string) {
+
+        console.info("Generating test data");
+
+        // Validate input
+        if (dataSchemaPrompt) { this.setDataSchema(dataSchemaPrompt) };
+
+        if (outputPath) { this.setDataFilePath(outputPath) };
+
+        // Construct the prompt
+        this.prompt = this.requestPrompt
+
+        // Generate data
+        const response = await anthropic.anthropicRequest(this.requestPrompt).then((data) => { return data; });
+
+        if (!response) { throw new Error('No response received'); }
+        else {
+            // Clean data
+            const generatedData = response.split('```')[1];
+
+            console.debug(generatedData)
+
+            // make sure path exists
+            this.checkDir(this.anthropicDir)
+
+            // Save to file
+            fs.writeFileSync(this.dataFilePath, generatedData, { encoding: 'utf8' });
+        }
+
+    }
+}
+
+
+const generator = new AnthropicDataGenerator();
+generator.generateTestData(dataGeneratorPromptList.getItem("DATA_GENERATION_REQUEST_PROMPT"));
+
+
+src\dataGeneration\theCount.ts
+import fs from "fs";
+
+export type Count = {
+    count: number
+    countFilesInDir: (directory: string) => number
+}
+
+export default class TheCount {
+    count: number;
+    constructor(count: number) {
+        this.count = count;
+    }
+    public countFilesInDir(directory: string): number {
+        if (!fs.existsSync(directory)) {
+            return 0;
+        }
+        const files = fs.readdirSync(directory);
+
+        for (const file of files) {
+            const filePath = `${directory}/${file}`;
+            const stats = fs.statSync(filePath);
+
+            if (stats.isFile()) {
+                this.count++;
+            }
+        }
+
+        return this.count;
+    }
+}
+
+src\dataIngestion\DataIngestor.ts
+import * as fs from 'fs';
+import { extractHtml } from './extractHtml';
+import { extractJSX } from './extractJSX';
+import { extractTSHtmlBlock } from './extractTSHTMLBlock';
+import { DirectoryParser } from './DirectoryParser';
+
+export default class DataIngestor {
+    static pathMapContent: any;
+    static mirrorDirectory: string = "data/mirror";
+    static directoryParser: DirectoryParser = new DirectoryParser();
+    static dataMap: any = {};
+    static mirrorMap: string = 'data/mirrorMap.json';
+
+    public static generatePathmap(filepath = 'tests/testPlace/'): void {
+        DataIngestor.directoryParser.writeStructureToFile(filepath);
+    }
+
+    public static readPathMap(filepath: string): void {
+        const fileContent = fs.readFileSync(filepath, "utf8");
+        DataIngestor.pathMapContent = JSON.parse(fileContent);
+    }
+
+    public static ingestTSCodeBlocks(filePath: string): void {
+        DataIngestor.dataMap[filePath] = extractTSHTMLBlock(filePath);
+    }
+
+    public static ingestHtmlFile(filePath: string): void {
+        const fileExtension = filePath.split('.').pop();
+        switch (fileExtension) {
+            case 'html':
+                DataIngestor.dataMap[filePath] = extractHtml(filePath);
+                DataIngestor.directoryParser.createMirrorFile(filePath)
+                break;
+            case 'tsx':
+            case 'jsx':
+                DataIngestor.dataMap[filePath] = extractJSX(filePath);
+                DataIngestor.directoryParser.createMirrorFile(filePath)
+                break;
+            case 'ts':
+            case 'js':
+                DataIngestor.dataMap[filePath] = extractTSHtmlBlock(filePath);
+                DataIngestor.directoryParser.createMirrorFile(filePath)
+                break;
+            default:
+                console.log(`Unsupported file type: ${fileExtension}`);
+        }
+    }
+
+    public static processPathmap(pathmap: any) {
+        fs.writeFileSync(DataIngestor.mirrorMap, JSON.stringify(DataIngestor.dataMap, null, 2))
+        for (const key in pathmap) {
+            const value = pathmap[key];
+            if (typeof value === 'string') {
+                DataIngestor.ingestHtmlFile(value);
+            } else if (typeof value === 'object') {
+                DataIngestor.processPathmap(value);
+            }
+        }
+    }
+}
+
+//// Initialize and process the path map
+//DataIngestor.generatePathmap();
+//DataIngestor.readPathMap(DataIngestor.directoryParser.filemap);
+//DataIngestor.processPathmap(DataIngestor.pathMapContent);
+//
+
+src\dataIngestion\DirectoryParser.ts
+import * as fs from 'fs';
+import * as path from 'path';
+import DataIngestor from './DataIngestor';
+
+export class DirectoryParser {
+    paths: string[];
+    filemap: string;
+    ignorepaths: string;
+    dataFolder: string;
+    fileIgnore: string[]
+    mirrorFilePath: string
+    mirrorDirectory: string
+    constructor() {
+        this.dataFolder = 'data';
+        this.filemap = 'data/fileMap.json';
+        this.ignorepaths = 'data/ignorepaths.txt';
+        if (!fs.existsSync(this.dataFolder)) {
+            fs.mkdirSync(this.dataFolder);
+        }
+        if (!fs.existsSync(this.filemap)) {
+            fs.writeFileSync(this.filemap, '{}');
+        }
+        this.paths = [];
+        this.fileIgnore = [];
+        this.setIgnorePaths();
+        this.mirrorFilePath = '';
+        this.mirrorDirectory = 'data/mirror';
+    }
+
+    public setIgnorePaths() {
+        if (!fs.existsSync(this.ignorepaths)) {
+            fs.writeFileSync(this.ignorepaths, '');
+            return;
+        }
+        fs.readFileSync(this.ignorepaths, 'utf8').split('\n').forEach(line => {
+            if (line) {
+                this.fileIgnore.push(line.trim());
+            }
+        });
+    }
+
+    public addToIgnorePaths(pathToAdd: string) {
+        this.fileIgnore.push(pathToAdd);
+        fs.writeFileSync(this.ignorepaths, this.fileIgnore.join('\n'));
+    }
+
+    public removeFromIgnorePaths(pathToRemove: string) {
+        this.fileIgnore = this.fileIgnore.filter(ignorePath => ignorePath !== pathToRemove);
+        fs.writeFileSync(this.ignorepaths, this.fileIgnore.join('\n'));
+    }
+
+    private shouldIgnorePath(filePath: string): boolean {
+        const normalizedPath = path.normalize(filePath);
+        return this.fileIgnore.some(ignorePath =>
+            normalizedPath.includes(path.normalize(ignorePath)) || normalizedPath === path.normalize(ignorePath));
+    }
+
+    public walkFolder(folder: string): any {
+        let structure: any = {};
+        for (const file of fs.readdirSync(folder)) {
+            const filePath = path.join(folder, file);
+            if (this.shouldIgnorePath(filePath)) {
+                continue;
+            }
+            if (fs.statSync(filePath).isDirectory()) {
+                structure[file] = this.walkFolder(filePath);
+            } else {
+                structure[file] = filePath;
+            }
+        }
+        return structure;
+    }
+
+    public writeStructureToFile(folder: string) {
+        const structure = this.walkFolder(folder);
+        fs.writeFileSync(this.filemap, JSON.stringify(structure, null, 2));
+    }
+    public createMirrorFile(originalFilePath: string): string {
+        const originalContent = fs.readFileSync(originalFilePath, 'utf8');
+        const fileName = path.basename(originalFilePath);
+        const mirrorFilePath = path.join(this.mirrorDirectory, fileName);
+
+        if (!fs.existsSync(this.mirrorDirectory)) {
+            fs.mkdirSync(this.mirrorDirectory, { recursive: true });
+        }
+
+        fs.writeFileSync(mirrorFilePath, originalContent);
+        this.mirrorFilePath = mirrorFilePath;
+        return this.mirrorFilePath;
+    }
+}
+
+
+
+
+src\dataIngestion\extractHtml.ts
+import * as cheerio from 'cheerio';
+import * as fs from 'fs';
+
+export function extractHtml(filePath: string) {
+    const htmlContent = fs.readFileSync(filePath, 'utf8');
+    const $ = cheerio.load(htmlContent);
+
+    // Example: Finding all divs and adding a class
+    $('div').addClass('new-class');
+
+    // Log or return the modified HTML
+    return $.html()
+
+}
+
+// Example usage
+//processHtmlFile('path/to/angular/template.html');
+
+
+src\dataIngestion\extractJSX.ts
+import * as parser from '@babel/parser';
+import traverse from '@babel/traverse';
+import generate from '@babel/generator';
+
+export function extractJSX(code: string) {
+    const jsxElements: string[] = [];
+    const ast = parser.parse(code, {
+        sourceType: 'module',
+        plugins: [
+            'jsx',
+            'typescript'
+        ]
+    });
+
+    traverse(ast, {
+        JSXElement(path) {
+            // Convert the JSX element to string
+            const jsxString = generate(path.node).code;
+            jsxElements.push(jsxString);
+        }
+    });
+    return jsxElements.join('\n')
+}
+
+
+src\dataIngestion\extractTSCodeBlock.ts
+import * as ts from 'typescript';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Function to read and extract function blocks from a TypeScript file
+function extractTSHTMLBlock(filePath: string) {
+    // Read the file content
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+
+    // Create a SourceFile object
+    const sourceFile = ts.createSourceFile(
+        path.basename(filePath),
+        fileContent,
+        ts.ScriptTarget.ESNext,
+        true
+    );
+    const codeblocks: string[] = [];
+    // Function to recursively traverse the AST
+    function visit(node: ts.Node) {
+        // Check if the node is a function (function declaration, method, or arrow function)
+        if (
+            ts.isFunctionDeclaration(node) ||
+            ts.isMethodDeclaration(node) ||
+            ts.isArrowFunction(node)
+        ) {
+            // Get the full text of the function from the source file
+            const functionText = node.getFullText(sourceFile);
+            codeblocks.push(functionText);
+            console.log('Function Block:\n', functionText);
+            console.log('-----------------------------------');
+        }
+
+        // Continue traversing the AST
+        ts.forEachChild(node, visit);
+    }
+
+    // Start traversing the AST from the root node
+    visit(sourceFile);
+    return codeblocks
+}
+
+
+export default extractTSHTMLBlock
+
+
+
+src\dataIngestion\extractTSHTMLBlock.ts
+import * as ts from 'typescript'
+import * as fs from 'fs';
+
+
+export function extractTSHtmlBlock(filePath: string) {
+    const fileContent = fs.readFileSync(filePath, 'utf8');
+    return ts.createSourceFile(filePath, fileContent, ts.ScriptTarget.Latest).text;
+}
+
+
+src\promptManagement\prompts\systemResponse.dt.ts
+export type SystemResponse = {
+    name: string
+    phone: number
+    fromAddress: string
+    toAddress: string
+    homeType: string
+    nBedrooms: string
+    nFloors: number
+    squareFootage: number
+    moveDate: string
+    additionalInfo: string
+}
+

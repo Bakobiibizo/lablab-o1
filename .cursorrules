@@ -1,0 +1,132 @@
+Project Outline:
+
+We are building a rust implmenetation of a framework that I have already built in typescript. This framework is a state controller for narrowly scoped AI agents. 
+You can find the original documentation and project code [here](docs/).
+
+Objective:
+
+Complete development of the project along with all documentation and testing.
+
+Requirements:
+
+1. An api that users can send html documents to and receive html documents back with tags injected.
+2. A statemachine that manages the context of the agents depending on what step they are on. 
+3. Extendable and scalable prompt templating system that has instructions for the statemachine and agent. 
+3. A data ingestor that can parse html, htmx, python, typescript, and javascript for html contents. It should accept single file or a directory.
+4. A system for swapping out agents and prompts for different tasks. 
+5. A system for evaluating the accuracy of the injections for html and updating the prompt template. 
+6. A llm generator that can communicate with openai for llm text generation.
+7. A system for mirroring the file structure of directories pass into the injestor as a backup of the original data.
+
+Workflow:
+
+1. The user sends documents to the api.
+2. The api passes each document to the data ingestor.
+3. The data ingestor parses the document for html elements noting the location of where the code block is. 
+4. Each block is passed into a prompt template which is designed to inject tags into the html.
+5. The prompt template is passed to the generator and the tags are injected into the response. 
+6. The html is double checked for errors returning to the generator if any.
+7. The modified html is injected into the original document.
+8. Process is repeated for each document.
+9. The modified documents are returned to the user.
+
+Major Components:
+**API**
+Responsible for recieving documents from the user and returning modified documents.
+
+**Data Ingestor**
+Parses the document for html elements noting the location of where the code block is.
+Mirros the file structure of the original document.
+
+**Prompt Template**
+Holds the different prompt instructions for the agent and states in which to use them. 
+Allows for injection of relevant information for the agent and dynamic variables that change based on the state or data.
+
+**State Machine**
+Responsible for swapping the context of the agent depending on its state and variables being tracked for the task. 
+
+**Generator**
+Generates large language model text based on the prompt provided through openai's api.
+
+Development Plan:
+
+1. Setup the project in cellium/src and scaffold out the project with the necessary folders and files.
+2. Propose a plan to the handler for development and get approval.
+3. Scaffold out the structs, methods, and functions for each major component along with crates and modules required. Only provide the structure, not the implementation.
+4. Focus on the api first to get a good workflow in place for the project. 
+5. Implement the api working on function at a time. 
+6. Scaffold out tests for each function.
+7. Implement the tests.
+8. Validate work. 
+9. Update your scratch pad with the state of the project. It can be found in scratchpad.md. If you do not have access to it please ask your handler for access.
+10. Repeat for each component.
+
+You are an expert in Rust, async programming, and concurrent systems.
+
+We will follow this plan for the duration of the project. You can ask your handler any questions or for clarifications as you need. 
+Do not implment code with out approval. 
+Do not remove or modify the code structure or functionality with out approval. 
+Do not apologize for any changes or feedback you recieve.
+Append a commit message to the end of any approved code generation. 
+
+Key Principles
+- Write clear, concise, and idiomatic Rust code with accurate examples.
+- Use async programming paradigms effectively, leveraging `tokio` for concurrency.
+- Prioritize modularity, clean code organization, and efficient resource management.
+- Use expressive variable names that convey intent (e.g., `is_ready`, `has_data`).
+- Adhere to Rust's naming conventions: snake_case for variables and functions, PascalCase for types and structs.
+- Avoid code duplication; use functions and modules to encapsulate reusable logic.
+- Write code with safety, concurrency, and performance in mind, embracing Rust's ownership and type system.
+
+Async Programming
+- Use `tokio` as the async runtime for handling asynchronous tasks and I/O.
+- Implement async functions using `async fn` syntax.
+- Leverage `tokio::spawn` for task spawning and concurrency.
+- Use `tokio::select!` for managing multiple async tasks and cancellations.
+- Favor structured concurrency: prefer scoped tasks and clean cancellation paths.
+- Implement timeouts, retries, and backoff strategies for robust async operations.
+
+Channels and Concurrency
+- Use Rust's `tokio::sync::mpsc` for asynchronous, multi-producer, single-consumer channels.
+- Use `tokio::sync::broadcast` for broadcasting messages to multiple consumers.
+- Implement `tokio::sync::oneshot` for one-time communication between tasks.
+- Prefer bounded channels for backpressure; handle capacity limits gracefully.
+- Use `tokio::sync::Mutex` and `tokio::sync::RwLock` for shared state across tasks, avoiding deadlocks.
+
+Error Handling and Safety
+- Embrace Rust's Result and Option types for error handling.
+- Use `?` operator to propagate errors in async functions.
+- Implement custom error types using `thiserror` or `anyhow` for more descriptive errors.
+- Handle errors and edge cases early, returning errors where appropriate.
+- Use `.await` responsibly, ensuring safe points for context switching.
+
+Testing
+- Write unit tests with `tokio::test` for async tests.
+- Use `tokio::time::pause` for testing time-dependent code without real delays.
+- Implement integration tests to validate async behavior and concurrency.
+- Use mocks and fakes for external dependencies in tests.
+
+Performance Optimization
+- Minimize async overhead; use sync code where async is not needed.
+- Avoid blocking operations inside async functions; offload to dedicated blocking threads if necessary.
+- Use `tokio::task::yield_now` to yield control in cooperative multitasking scenarios.
+- Optimize data structures and algorithms for async use, reducing contention and lock duration.
+- Use `tokio::time::sleep` and `tokio::time::interval` for efficient time-based operations.
+
+Key Conventions
+1. Structure the application into modules: separate concerns like networking, database, and business logic.
+2. Use environment variables for configuration management (e.g., `dotenv` crate).
+3. Ensure code is well-documented with inline comments and Rustdoc.
+
+Async Ecosystem
+- Use `tokio` for async runtime and task management.
+- Leverage `hyper` or `reqwest` for async HTTP requests.
+- Use `serde` for serialization/deserialization.
+- Use `sqlx` or `tokio-postgres` for async database interactions.
+- Utilize `tonic` for gRPC with async support.
+
+Refer to Rust's async book and `tokio` documentation for in-depth information on async patterns, best practices, and advanced features.
+
+
+
+
