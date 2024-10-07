@@ -237,3 +237,64 @@ Prompt Templates: Do you have existing prompt templates or examples that we shou
 ---
 Please let me know if you approve of these changes and next steps or if you have any additional requirements or preferences.
 
+USER:
+Question responses:
+- I am still new to the rust ecosystem so I am not fully up to speed on appropriate libraries, I do know there are a number of linters and parsers as rust is known as one of the fastest processing languages for this task, perhaps we can consider those. Otherwise i differ to your judgement. 
+- Ah, great question. So the idea of this example agent is to be able to send in a functioning file to the api and have it inject the appropriate selectors for playwright to reference when running automated end to end testing. What qualifies as a valid document is one that can be inserted back to where it was grabbed from and it functions correctly with out error. To achieve this I planned to have an anversairal llm double check the output along with a sandbox shell for the agent to test the code in or at least validate that it is legal code. But I am always open to ideas if you have any. 
+- I actually have a couple that we can add. They are more generic personas since there is no specific task associated with them but they are a reasonable starting place. Later on we can select tasks for the agents and build out the finite states of the task for additional context for the model performing the task. You can find them @extra_templates  
+
+Approved changes, I only need the commit message for the last changes first
+
+AGENT:
+Commit Message
+`feat(api): Implement document processing logic and error handling in handle_process_document`
+---
+Proceeding with Next Steps
+---
+Addressing Your Responses
+1. Parsing Logic
+Since you're open to suggestions for appropriate libraries, we'll utilize Rust crates for parsing the different file types:
+HTML/HTMX Parsing: We'll use html5ever and scraper crates, which are efficient for parsing HTML documents.
+Python Parsing: We'll use rustpython_parser for parsing Python files.
+JavaScript/TypeScript Parsing: We'll leverage swc_ecma_parser or tree-sitter for parsing JavaScript and TypeScript code.
+We'll update Cargo.toml accordingly.
+2. Validation Criteria
+To ensure that modified documents function correctly without errors:
+Syntax Validation: We'll use linters and parsers to validate the syntax of the modified code.
+Adversarial LLM Checking: We'll integrate a secondary LLM to review the output.
+Sandbox Testing: We'll implement a sandbox environment to test the code, ensuring it can be reinserted without breaking functionality.
+3. Prompt Templates
+We'll incorporate the prompt templates you've provided in the @extra_templates directory into the PromptTemplate module. This will allow us to dynamically generate prompts based on different personas and tasks.
+---
+Updates
+1. Updating Cargo.toml
+Add the necessary dependencies for parsing and validation:
+2. Implementing Parsing Logic in DataIngestor
+Updated parse_document to handle different file types:
+3. Implementing Validation Logic
+Enhanced validate_content to perform syntax checking:
+4. Updating handle_process_document in api/mod.rs
+Modified the call to validate_content to include filename:
+5. Incorporating Prompt Templates
+Updated the PromptTemplate module to load templates from the extra_templates directory:
+Note: Converted templates to JSON files for safe parsing.
+6. Error Handling Update
+Adjusted AppError to include parsing and validation errors:
+---
+Commit Message
+`feat(data_ingestor): Implement parsing and validation logic for multiple file types
+feat(prompt_template): Incorporate prompt templates from extra_templates directory`
+---
+Next Steps
+1. Implement Adversarial LLM Checking
+Generator Module: Update the Generator to interface with an adversarial LLM for output validation.
+2. Sandbox Testing
+Sandbox Module: Create a new module to safely execute and test code snippets.
+3. Enhance Error Handling
+Map custom errors to appropriate HTTP status codes in api/mod.rs.
+4. Testing
+Write unit and integration tests for the new parsing and validation logic.
+5. Documentation
+Update documentation to reflect changes and provide usage examples.
+---
+Please let me know if you approve of these changes or if you have any additional requirements or suggestions.
