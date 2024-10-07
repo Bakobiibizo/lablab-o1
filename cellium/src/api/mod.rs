@@ -5,6 +5,8 @@ use crate::generator::Generator;
 use crate::prompt_template::PromptTemplate;
 use crate::state_machine::StateMachine;
 use serde::Deserialize;
+use crate::errors::AppError; // We'll define a custom error type in a new module
+use warp::http::StatusCode;
 
 pub async fn run_server() {
     // Load server configuration from environment variables
@@ -43,12 +45,45 @@ async fn handle_process_document(doc: Document) -> Result<impl warp::Reply, warp
     let mut state_machine = StateMachine::new();
     let generator = Generator::new();
 
-    // TODO: Process the document using the components
     // 1. Ingest the document
-    // 2. Update state machine
-    // 3. Generate modified content
-    // 4. Validate and return the result
+    let parsed_content = data_ingestor
+        .parse_document(&doc.content, &doc.filename)
+        .await
+        .map_err(|e| warp::reject::custom(AppError::IngestionError(e)))?;
 
-    // For now, return the original document as a placeholder
-    Ok(warp::reply::json(&doc))
+    // 2. Update state machine to Parsing state
+    state_machine.transition(AgentState::Parsing);
+
+    // 3. Generate modified content
+    let prompt = prompt_template.generate_prompt(&parsed_content);
+    let generated_content = generator
+        .generate_text(&prompt)
+        .await
+        .map_err(|e| warp::reject::custom(AppError::GenerationError(e)))?;
+
+    // 4. Validate the generated content
+    state_machine.transition(AgentState::Validating);
+    let is_valid = data_ingestor.validate_content(&generated_content, &doc.filename);
+
+    if !is_valid {
+        // Handle validation failure
+        return Err(warp::reject::custom(AppError::ValidationError));
+    }
+
+    // 5. Return the modified document
+    let response = Document {
+        content: generated_content,
+        filename: doc.filename,
+    };
+
+    // Update state machine to Completed state
+    state_machine.transition(AgentState::Completed);
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&response),
+        StatusCode::OK,
+    ))
 }
+
+// Error handling
+impl warp::reject::Reject for AppError {}

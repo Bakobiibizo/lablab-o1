@@ -24,7 +24,33 @@ impl Generator {
     }
 
     pub async fn generate_text(&self, prompt: &str) -> Result<String, reqwest::Error> {
-        // TODO: Implement OpenAI API interaction
-        Ok(String::new())
+        let request_body = serde_json::json!({
+            "model": self.model,
+            "prompt": prompt,
+            "max_tokens": 150,
+            "temperature": 0.7,
+            "n": 1,
+            "stop": null
+        });
+
+        let response = self
+            .client
+            .post(format!("{}/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request_body)
+            .send()
+            .await?;
+
+        let response_json: Value = response.json().await?;
+
+        // Extract the generated text from the response
+        if let Some(text) = response_json["choices"][0]["text"].as_str() {
+            Ok(text.trim().to_string())
+        } else {
+            Err(reqwest::Error::new(
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to get generated text",
+            ))
+        }
     }
 }
