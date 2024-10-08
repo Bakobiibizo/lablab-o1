@@ -3,19 +3,21 @@ use serde_json::Value;
 use std::env;
 use std::io::Error;
 use std::io::ErrorKind;
+use thiserror::Error;
 
-pub struct Generator {
-    client: Client,
-    api_key: String,
-    base_url: String,
-    model: String,
+#[derive(Error, Debug)]
+pub enum GeneratorError {
+    #[error("Request error: {0}")]
+    RequestError(#[from] reqwest::Error),
+    #[error("Failed to get generated text")]
+    GenerationError,
 }
 
 impl Generator {
     pub fn new() -> Self {
         let api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
         let base_url = env::var("OPENAI_BASE_URL").unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-        let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "text-davinci-003".to_string());
+        let model = env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4".to_string());
 
         Self {
             client: Client::new(),
@@ -25,7 +27,7 @@ impl Generator {
         }
     }
 
-    pub async fn generate_text(&self, prompt: &str) -> Result<String, reqwest::Error> {
+    pub async fn generate_text(&self, prompt: &str) -> Result<String, GeneratorError> {
         let request_body = serde_json::json!({
             "model": self.model,
             "prompt": prompt,
@@ -53,6 +55,15 @@ impl Generator {
                 reqwest::StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to get generated text",
             ))
+        }
+
+        let response_json: Value = response.json().await?;
+
+        // Extract the generated text from the response
+        if let Some(text) = response_json["choices"][0]["text"].as_str() {
+            Ok(text.trim().to_string())
+        } else {
+            Err(GeneratorError::GenerationError)
         }
     }
 }

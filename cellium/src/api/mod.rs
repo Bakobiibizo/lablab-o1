@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::AppError; // We'll define a custom error type in a new module
 use warp::http::StatusCode;
 use warp::Reply;
+use crate::state_machine::AgentState;
 
 #[tokio::main]
 async fn run_server() {
