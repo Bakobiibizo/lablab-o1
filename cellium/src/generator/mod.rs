@@ -1,6 +1,8 @@
 use reqwest::Client;
 use serde_json::Value;
 use std::env;
+use std::io::Error;
+use std::io::ErrorKind;
 
 pub struct Generator {
     client: Client,

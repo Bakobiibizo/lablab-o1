@@ -2,14 +2,15 @@ use warp::Filter;
 use std::env;
 use crate::data_ingestor::DataIngestor;
 use crate::generator::Generator;
-use crate::prompt_template::PromptTemplate;
-use crate::state_machine::StateMachine;
-use serde::Deserialize;
+use crate::prompt_template::{self, PromptTemplate};
+use crate::state_machine::{self, StateMachine};
+use serde::{Deserialize, Serialize};
 use crate::errors::AppError; // We'll define a custom error type in a new module
 use warp::http::StatusCode;
 use warp::Reply;
 
-pub async fn run_server() {
+#[tokio::main]
+async fn run_server() {
     // Load server configuration from environment variables
     let host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = env::var("SERVER_PORT")
@@ -33,7 +34,7 @@ fn api_routes() -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejecti
         .and_then(handle_process_document)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Document {
     content: String,
     filename: String,
@@ -42,7 +43,7 @@ struct Document {
 async fn handle_process_document(doc: Document) -> Result<impl warp::Reply, warp::Rejection> {
     // Initialize components
     let data_ingestor = DataIngestor::new();
-    let prompt_template = PromptTemplate::new();
+    let agent_template = PromptTemplate::new();
     let mut state_machine = StateMachine::new();
     let generator = Generator::new();
 
@@ -53,17 +54,17 @@ async fn handle_process_document(doc: Document) -> Result<impl warp::Reply, warp
         .map_err(|e| warp::reject::custom(AppError::IngestionError(e)))?;
 
     // 2. Update state machine to Parsing state
-    state_machine.transition(AgentState::Parsing);
+    state_machine.transition(state_machine::AgentState::Parsing);
 
     // 3. Generate modified content
-    let prompt = prompt_template.generate_prompt(&parsed_content);
+    let prompt = agent_template.generate_prompt(&parsed_content, "coding_template");
     let generated_content = generator
         .generate_text(&prompt)
         .await
         .map_err(|e| warp::reject::custom(AppError::GenerationError(e)))?;
 
     // 4. Validate the generated content
-    state_machine.transition(AgentState::Validating);
+    state_machine.transition(state_machine::AgentState::Validating);
     let is_valid = data_ingestor.validate_content(&generated_content, &doc.filename);
 
     if !is_valid {
@@ -78,8 +79,8 @@ async fn handle_process_document(doc: Document) -> Result<impl warp::Reply, warp
     };
 
     // Update state machine to Completed state
-    state_machine.transition(AgentState::Completed);
-
+    state_machine.transition(state_machine::AgentState::Completed);
+   
     Ok(warp::reply::with_status(
         warp::reply::json(&response),
         StatusCode::OK,

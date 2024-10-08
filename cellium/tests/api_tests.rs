@@ -2,6 +2,7 @@ use warp::http::StatusCode;
 use warp::test::request;
 use serde_json::json;
 use cellium::api::{api_routes, Document};
+use cellium::errors::AppError;
 use tokio;
 
 #[tokio::test]
