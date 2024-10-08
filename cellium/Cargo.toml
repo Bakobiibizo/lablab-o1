@@ -33,3 +33,4 @@ features = ["full", "derive", "parsing", "printing"]
 
 [patch.crates-io]
 syn = { version = "2.0.25", features = ["full", "derive", "parsing", "printing"] }
+

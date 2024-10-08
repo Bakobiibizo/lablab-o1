@@ -3,11 +3,10 @@ use std::env;
 use rustpython_parser::parser::{parse_program, ParseError};
 use rustpython_parser::ast;
 use scraper::Html;
-
 use swc_ecma_parser::{Parser, StringInput, Syntax, EsConfig, TsConfig};
 use swc_common::{input::SourceFileInput, FileName, SourceMap};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PythonParser {
     pub input_path: PathBuf,
     pub output_path: PathBuf,
@@ -20,14 +19,14 @@ impl PythonParser{
             output_path: PathBuf::from(format!("{}_output", env::var("DATA_DIR").expect("DATA_DIR not set"))),
         }
     }
-    pub fn parse(&self, content: &str, source_file: &str) -> Result<String, std::io::Error> {
-        Parser::new(Syntax::Typescript(TsConfig::default()), SourceFileInput::from(&*source_file), None)
-            .parse_module()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)));
+    pub fn parse(&self, content: &str, source_file: &str) -> ast::ModModule {
+        let ast: ast::ModModule = parse_program(content, "<embedded>")
+            .map_err(|e: ParseError| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))?;
+        ast
     }
-    
 }
 
+#[derive(Debug, Clone)]
 pub struct DataIngestor {
     pub input_path: PathBuf,
     pub output_path: PathBuf,
@@ -49,6 +48,11 @@ impl DataIngestor {
         // TODO: Implement logic to parse documents and mirror file structure
     }
 
+    pub fn parse(&self, content: &str, filename: &str) -> ast::ModModule {
+        let ast = PythonParser::new().parse(content, filename);
+        Ok(ast.clone())
+    }
+
     pub async fn parse_document(
         &self,
         content: &str,
@@ -63,11 +67,9 @@ impl DataIngestor {
                 Ok(content.to_string())
             },
             "py" => {
-                // Parse Python content
                 let ast = parse_program(content, "<embedded>")
                     .map_err(|e: ParseError| std::io::Error::new(std::io::ErrorKind::Other, format!("{}", e)))?;
-                // TODO: Process AST as needed
-                Ok(content.to_string())
+                Ok(ast.to_string())
             },
             "ts" | "tsx" | "js" | "jsx" => {
                 let syntax = if filename.ends_with("ts") || filename.ends_with("tsx") {
